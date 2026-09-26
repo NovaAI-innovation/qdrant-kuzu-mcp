@@ -3,7 +3,7 @@ import asyncio
 from fastembed import TextEmbedding
 from fastembed.common.model_description import DenseModelDescription
 
-from mcp_server_qdrant.embeddings.base import EmbeddingProvider
+from qdrant_kuzu_mcp.embeddings.base import EmbeddingProvider
 
 
 class FastEmbedProvider(EmbeddingProvider):

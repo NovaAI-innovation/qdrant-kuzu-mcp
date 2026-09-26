@@ -1,5 +1,5 @@
 [project]
-name = "mcp-server-qdrant"
+name = "qdrant-kuzu-mcp"
 version = "0.8.1"
 description = "MCP server for retrieving context from a Qdrant vector database"
 readme = "README.md"
@@ -29,7 +29,7 @@ dev-dependencies = [
 ]
 
 [project.scripts]
-mcp-server-qdrant = "mcp_server_qdrant.main:main"
+qdrant-kuzu-mcp = "qdrant_kuzu_mcp.main:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

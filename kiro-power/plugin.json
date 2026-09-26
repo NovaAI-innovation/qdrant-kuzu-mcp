@@ -20,6 +20,6 @@
     "knowledge base"
   ],
   "homepage": "https://qdrant.tech/documentation/",
-  "repository": "https://github.com/qdrant/mcp-server-qdrant",
+  "repository": "https://github.com/qdrant/qdrant-kuzu-mcp",
   "license": "Apache-2.0"
 }

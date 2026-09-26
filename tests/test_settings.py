@@ -1,7 +1,7 @@
 import pytest
 
-from mcp_server_qdrant.embeddings.types import EmbeddingProviderType
-from mcp_server_qdrant.settings import (
+from qdrant_kuzu_mcp.embeddings.types import EmbeddingProviderType
+from qdrant_kuzu_mcp.settings import (
     DEFAULT_TOOL_FIND_DESCRIPTION,
     DEFAULT_TOOL_STORE_DESCRIPTION,
     EmbeddingProviderSettings,
