@@ -7,12 +7,17 @@
 > AI-powered IDE, enhancing a chat interface, or creating custom AI workflows, MCP provides a standardized way to
 > connect LLMs with the context they need.
 
-This repository is an example of how to create a MCP server for [Qdrant](https://qdrant.tech/), a vector search engine.
+This repository extends the official Qdrant MCP server ([qdrant/mcp-server-qdrant](https://github.com/qdrant/mcp-server-qdrant),
+pinned upstream commit in [`UPSTREAM_PIN`](UPSTREAM_PIN)) with Kuzu-backed graph traversal tools, turning it into a
+unified Graph-RAG memory layer: vector similarity search via Qdrant, entity-relationship traversal via the embedded
+[Kuzu](https://github.com/kuzudb/kuzu) graph database.
 
 ## Overview
 
-An official Model Context Protocol server for keeping and retrieving memories in the Qdrant vector search engine.
-It acts as a semantic memory layer on top of the Qdrant database.
+An official Model Context Protocol server for keeping and retrieving memories in the Qdrant vector search engine,
+extended with an entity graph stored in Kuzu. It acts as a semantic memory layer on top of the Qdrant database:
+memories are stored as vectors, and the entities and relations they mention are recorded in a Kuzu graph that can
+be traversed alongside similarity search.
 
 ## Components
 
@@ -23,6 +28,8 @@ It acts as a semantic memory layer on top of the Qdrant database.
    - Input:
      - `information` (string): Information to store
      - `metadata` (JSON): Optional metadata to store
+     - `entities` (list of strings): Optional entity names mentioned by the information; recorded in the Kuzu entity graph and linked to this memory (only available when the graph layer is enabled and writable)
+     - `relations` (list of objects): Optional entity relations, each `{subject, predicate, object}` with snake_case predicates (e.g. `depends_on`); endpoints are created implicitly (only available when the graph layer is enabled and writable)
      - `collection_name` (string): Name of the collection to store the information in. This field is required if there are no default collection name.
                                    If there is a default collection name, this field is not enabled.
    - Returns: Confirmation message
@@ -33,6 +40,27 @@ It acts as a semantic memory layer on top of the Qdrant database.
      - `collection_name` (string): Name of the collection to store the information in. This field is required if there are no default collection name.
                                    If there is a default collection name, this field is not enabled.
    - Returns: Information stored in the Qdrant database as separate messages
+3. `qdrant-graph-find` (requires the `graph` extra)
+   - Traverse the entity graph derived from stored memories
+   - Input:
+     - `entity` (string): Seed entity name to expand from
+     - `relation` (string): Optional relation kind filter (snake_case)
+     - `depth` (int): Maximum hops from the seed, 1-3, default 1
+     - `direction` (string): `any`, `out`, or `in`, default `any`
+     - `limit` (int): Maximum entities returned, 1-100, default 20
+   - Returns: JSON envelope with seed info, related entities (with hop distance and relation kind), and a referencing chunk per entity
+4. `qdrant-graph-expand-from-hits` (requires the `graph` extra)
+   - Search memories in Qdrant, then expand the entity graph from the entities those memories mention (via their `metadata.entities`)
+   - Input:
+     - `query` (string): Query for the vector search
+     - `collection_name` (string): Collection to search
+     - `relation`, `depth`, `limit`: As in `qdrant-graph-find`
+     - `search_limit` (int): How many Qdrant hits to harvest entities from, 1-10, default 5
+   - Returns: JSON envelope with per-seed graph expansions
+
+> The graph tools are registered only when the Kuzu layer is available (package installed, `KUZU_ENABLED` not `false`,
+> and the database opens successfully). If Kuzu is unavailable the server degrades gracefully to the upstream
+> two-tool surface; the upstream tools are never removed or renamed.
 
 ## Environment Variables
 
@@ -54,6 +82,20 @@ Configuration is done via environment variables. The only command-line argument 
 | `QDRANT_SEARCH_LIMIT`    | Maximum number of results to return from search                     | `10`                                                              |
 | `QDRANT_READ_ONLY`       | Enable read-only mode (disables `qdrant-store` tool)                | `false`                                                           |
 
+### Kuzu graph layer
+
+The graph layer is active when the `kuzu` package is installed (install with the `graph` extra, see
+[Installation](#installation)) and `KUZU_ENABLED` is not `false`. If the Kuzu database cannot be opened, the
+server logs a warning and starts with the upstream two-tool surface only.
+
+| Name                        | Description                                                                    | Default Value |
+|-----------------------------|--------------------------------------------------------------------------------|---------------|
+| `KUZU_ENABLED`              | Force the graph layer off without uninstalling the extra                       | `true`        |
+| `KUZU_DB_PATH`              | Path to the embedded Kuzu database directory. `:memory:` for a per-process in-memory graph | `./kuzu_db` |
+| `KUZU_READ_ONLY`            | Open Kuzu read-only: graph read tools stay, `entities`/`relations` write params are hidden | `false` |
+| `KUZU_BUFFER_POOL_SIZE`     | Kuzu buffer pool size in bytes (0 = engine default)                            | `536870912`   |
+| `KUZU_MAX_CONCURRENT_QUERIES` | Max concurrent Kuzu read queries                                              | `4`           |
+
 ### FastMCP Environment Variables
 
 Since `qdrant-kuzu-mcp` is based on FastMCP, it also supports all the FastMCP environment variables. The most
@@ -74,6 +116,54 @@ important ones are listed below:
 > Server-specific settings use the `FASTMCP_SERVER_` prefix. This may change in future versions.
 
 ## Installation
+
+### Using uv / uvx
+
+Create a virtualenv and install with the graph extra (recommended, includes Kuzu):
+
+```shell
+uv venv
+uv pip install -e ".[graph]"
+```
+
+Or without the graph layer (vector tools only, matches the upstream surface):
+
+```shell
+uv venv
+uv pip install -e .
+```
+
+Run the server (stdio transport by default):
+
+```shell
+QDRANT_URL="http://localhost:6333" \
+COLLECTION_NAME="my-collection" \
+KUZU_DB_PATH="./kuzu_db" \
+python -m qdrant_kuzu_mcp
+```
+
+### Using pip
+
+```shell
+python -m venv .venv
+# Windows: .venv\Scripts\activate   — Linux/macOS: source .venv/bin/activate
+pip install -e ".[graph]"
+python -m qdrant_kuzu_mcp
+```
+
+### Quick local check (no external services)
+
+With a local embedded Qdrant and an on-disk Kuzu database — both backends run embedded, nothing to deploy:
+
+```shell
+QDRANT_LOCAL_PATH="./qdrant_storage" \
+COLLECTION_NAME="memories" \
+KUZU_DB_PATH="./kuzu_db" \
+python -m qdrant_kuzu_mcp
+```
+
+Then send an MCP `initialize` + `tools/list` request over stdio; you should see all four tools:
+`qdrant-find`, `qdrant-store`, `qdrant-graph-find`, `qdrant-graph-expand-from-hits`.
 
 ### Using uvx
 

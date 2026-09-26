@@ -15,6 +15,20 @@ DEFAULT_TOOL_FIND_DESCRIPTION = (
     " - Get some personal information about the user"
 )
 
+DEFAULT_TOOL_GRAPH_FIND_DESCRIPTION = (
+    "Traverse the entity graph derived from stored memories. Use after qdrant-find "
+    "when the question is about relationships between entities (dependencies, "
+    "ownership, co-occurrence) rather than similar text. Provide a seed entity "
+    "name; returns related entities with hop distance and the chunk that "
+    "mentions them."
+)
+DEFAULT_TOOL_GRAPH_EXPAND_DESCRIPTION = (
+    "Search memories in Qdrant and expand the entity graph from the entities "
+    "those memories mention. One call replaces a qdrant-find followed by "
+    "several qdrant-graph-find calls when you want everything related to a "
+    "topic."
+)
+
 METADATA_PATH = "metadata"
 
 
@@ -31,6 +45,48 @@ class ToolSettings(BaseSettings):
         default=DEFAULT_TOOL_FIND_DESCRIPTION,
         validation_alias="TOOL_FIND_DESCRIPTION",
     )
+    tool_graph_find_description: str = Field(
+        default=DEFAULT_TOOL_GRAPH_FIND_DESCRIPTION,
+        validation_alias="TOOL_GRAPH_FIND_DESCRIPTION",
+    )
+    tool_graph_expand_description: str = Field(
+        default=DEFAULT_TOOL_GRAPH_EXPAND_DESCRIPTION,
+        validation_alias="TOOL_GRAPH_EXPAND_DESCRIPTION",
+    )
+
+
+class KuzuSettings(BaseSettings):
+    """
+    Configuration for the Kuzu graph connector.
+
+    ``enabled`` allows operators to force the graph layer off without
+    uninstalling the ``[graph]`` extra.
+    """
+
+    enabled: bool = Field(default=True, validation_alias="KUZU_ENABLED")
+    db_path: str = Field(default="./kuzu_db", validation_alias="KUZU_DB_PATH")
+    read_only: bool = Field(default=False, validation_alias="KUZU_READ_ONLY")
+    buffer_pool_size: int = Field(
+        default=512 * 1024 * 1024,
+        validation_alias="KUZU_BUFFER_POOL_SIZE",
+    )
+    max_concurrent_queries: int = Field(
+        default=4,
+        validation_alias="KUZU_MAX_CONCURRENT_QUERIES",
+    )
+
+    @property
+    def is_memory(self) -> bool:
+        """True when the DB path selects the in-memory (per-process) mode."""
+        return self.db_path in {":memory:", ""}
+
+    @property
+    def normalized_db_path(self) -> str:
+        # ``""`` also selects in-memory mode in Kuzu; normalize so the
+        # connector can branch on one spelling.
+        if self.is_memory:
+            return ":memory:"
+        return self.db_path
 
 
 class EmbeddingProviderSettings(BaseSettings):

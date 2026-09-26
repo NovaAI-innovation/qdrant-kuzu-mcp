@@ -60,12 +60,14 @@ class QdrantConnector:
         response = await self._client.get_collections()
         return [collection.name for collection in response.collections]
 
-    async def store(self, entry: Entry, *, collection_name: str | None = None):
+    async def store(self, entry: Entry, *, collection_name: str | None = None) -> str:
         """
         Store some information in the Qdrant collection, along with the specified metadata.
         :param entry: The entry to store in the Qdrant collection.
         :param collection_name: The name of the collection to store the information in, optional. If not provided,
                                 the default collection is used.
+        :return: The id of the stored point (uuid4 hex), so callers (e.g. the
+                 Kuzu graph sync) can reference the exact stored chunk.
         """
         collection_name = collection_name or self._default_collection_name
         assert collection_name is not None
@@ -79,16 +81,20 @@ class QdrantConnector:
         # Add to Qdrant
         vector_name = self._embedding_provider.get_vector_name()
         payload = {"document": entry.content, METADATA_PATH: entry.metadata}
+        # The point id is generated here (not by qdrant-client) so it can be
+        # threaded to other stores (Kuzu graph) for the same stored chunk.
+        point_id = uuid.uuid4().hex
         await self._client.upsert(
             collection_name=collection_name,
             points=[
                 models.PointStruct(
-                    id=uuid.uuid4().hex,
+                    id=point_id,
                     vector={vector_name: embeddings[0]},
                     payload=payload,
                 )
             ],
         )
+        return point_id
 
     async def search(
         self,
